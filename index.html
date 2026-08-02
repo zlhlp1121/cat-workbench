@@ -10944,11 +10944,15 @@ this.data.exercises=[];
 }
 const today=todayStr();
 if(!this.data.homeTasks)this.data.homeTasks={};
-if(!this.data.homeTasks[today])this.data.homeTasks[today]={urgentImportant:[],urgentNotImportant:[],importantNotUrgent:[],notUrgentNotImportant:[]};
+if(!this.data.homeTasks[today])this.data.homeTasks[today]={todos:[],urgentImportant:[],urgentNotImportant:[],importantNotUrgent:[],notUrgentNotImportant:[]};
+App._lastDay=today;
+try{if(typeof HomeMod!=='undefined'&&HomeMod.rolloverUncompletedTodos)HomeMod.rolloverUncompletedTodos();}catch(e){}
+const _doDayRollover=()=>{try{const t=todayStr();if(App._lastDay&&App._lastDay!==t){if(typeof HomeMod!=='undefined'&&HomeMod.rolloverUncompletedTodos&&HomeMod.rolloverUncompletedTodos()>0&&typeof UI!=='undefined'&&UI.renderAll)UI.renderAll();App._lastDay=t;}}catch(e){}};
 if(!this._todoReminderTimer){
-this._todoReminderTimer=setInterval(()=>{try{if(typeof HomeMod!=='undefined'&&HomeMod.checkTodoReminders)HomeMod.checkTodoReminders()}catch(e){}},30000);
+this._todoReminderTimer=setInterval(()=>{try{_doDayRollover()}catch(e){}try{if(typeof HomeMod!=='undefined'&&HomeMod.checkTodoReminders)HomeMod.checkTodoReminders()}catch(e){}},30000);
 setTimeout(()=>{try{if(typeof HomeMod!=='undefined'&&HomeMod.checkTodoReminders)HomeMod.checkTodoReminders()}catch(e){}},2000);
 }
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)_doDayRollover();});
 this.checkAutoBackup();
 },
 load(){this.init()},
@@ -11588,6 +11592,36 @@ if(q.date!==today){
 getTodos(){
 this.ensureData();
 return App.data.homeTasks[todayStr()].todos||[];
+},
+rolloverUncompletedTodos(){
+// 跨天顺延：把过去日期里"未完成"的待办，自动搬到今天（保留已完成项在各自日期做历史）
+const ht=App.data.homeTasks||{};
+const today=todayStr();
+const pastDays=Object.keys(ht).filter(d=>d<today).sort();
+if(!pastDays.length)return 0;
+if(!ht[today])ht[today]={todos:[]};
+const todayTodos=ht[today].todos||(ht[today].todos=[]);
+const seen=new Set(todayTodos.map(t=>t.id));
+let moved=0;
+pastDays.forEach(d=>{
+const bucket=ht[d];
+if(!bucket||!bucket.todos||!bucket.todos.length)return;
+const keep=[];
+bucket.todos.forEach(t=>{
+if(t.completed){keep.push(t);return;}
+if(seen.has(t.id)){keep.push(t);return;}
+if(t.remindAt){ // 提醒时刻顺延到今天，保留原时刻
+const time=(String(t.remindAt).split('T')[1]||'09:00');
+t.remindAt=today+'T'+time;
+}
+todayTodos.push(t);
+seen.add(t.id);
+moved++;
+});
+bucket.todos=keep;
+});
+if(moved)App.save();
+return moved;
 },
 findTodoBucket(id){
 const ht=App.data.homeTasks||{};
